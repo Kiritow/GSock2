@@ -669,7 +669,7 @@ int udpsock::sendto(const std::string& ip, int port, const void* buffer, int len
 	sockaddr_in saddr;
 	sockaddr_in6 saddr6;
 	sockaddr* paddr;
-	int addrsz;
+	socklen_t addrsz;
 
 	int ret = convert_ipv46(ip, port, paddr, addrsz, saddr, saddr6, _p->protocol);
 	if (ret < 0) return ret;
@@ -851,53 +851,6 @@ bool selector::isError(const basic_sock& v)
 {
 	return FD_ISSET(v._vp->fd, &_pp->errorset);
 }
-
-#ifdef WIN32 // Windows: IOCP. Coming soon...
-
-#else // Linux: epoll
-#include <functional>
-
-epoll::epoll(int MaxListen) : _evec(MaxListen)
-{
-	_fd = epoll_create(MaxListen); // this parameter is useless.
-}
-epoll::~epoll()
-{
-	close(_fd);
-}
-int epoll::add(vsock& v, int event)
-{
-	struct epoll_event ev;
-	ev.events = event;
-	ev.data.ptr = &v;
-	return epoll_ctl(_fd, EPOLL_CTL_ADD, v._vp->sfd, &ev);
-}
-int epoll::mod(vsock& v, int event)
-{
-	struct epoll_event ev;
-	ev.events = event;
-	ev.data.ptr = &v;
-	return epoll_ctl(_fd, EPOLL_CTL_MOD, v._vp->sfd, &ev);
-}
-int epoll::del(vsock& v)
-{
-	return epoll_ctl(_fd, EPOLL_CTL_DEL, v._vp->sfd, NULL);
-}
-int epoll::wait(int timeout)
-{
-	return _n = epoll_wait(_fd, _evec.data(), _evec.size(), timeout);
-}
-void epoll::handle(const std::function<void(vsock&, int)>& callback)
-{
-	if (_n > 0)
-	{
-		for (int i = 0; i < _n; i++)
-		{
-			callback(*((vsock*)(_evec[i].data.ptr)), (int)(_evec[i].events));
-		}
-	}
-}
-#endif
 
 int DNSResolve(const std::string& HostName, std::vector<std::string>& _out_IPStrVec)
 {

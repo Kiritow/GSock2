@@ -340,9 +340,9 @@ public:
 	epoll(int MaxListen);
 	// EPOLLIN, EPOLLOUT, ...
 	// Use EPOLLET to set Edge Trigger Mode
-	int add(vsock& v, int event);
-	int mod(vsock& v, int event);
-	int del(vsock& v);
+	int add(basic_sock& v, int event);
+	int mod(basic_sock& v, int event);
+	int del(basic_sock& v);
 
 	// >0: Event counts.
 	// =0: Timeout.
@@ -352,7 +352,7 @@ public:
 	int wait(int timeout);
 
 	// callback: void event_handler(basic_sock& s,int event)
-	void handle(const std::function<void(vsock&, int)>& callback);
+	void handle(const std::function<void(basic_sock&, int)>& callback);
 
 	~epoll();
 private:

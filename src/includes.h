@@ -43,6 +43,7 @@ Windows 10 = 0x0A00
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/epoll.h>
+#include <cstring>  // strerror_r
 #define closesocket close
 using BYTE = unsigned char;
 #define WSAGetLastError() errno
