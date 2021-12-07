@@ -337,7 +337,8 @@ public:
 class epoll
 {
 public:
-	epoll(int MaxListen);
+	epoll(int size);
+
 	// EPOLLIN, EPOLLOUT, ...
 	// Use EPOLLET to set Edge Trigger Mode
 	int add(basic_sock& v, int event);
@@ -355,10 +356,9 @@ public:
 	void handle(const std::function<void(basic_sock&, int)>& callback);
 
 	~epoll();
-private:
-	std::vector<struct epoll_event> _evec;
-	int _n;
-	int _fd;
+
+	struct _impl;
+	std::shared_ptr<_impl> _p;
 };
 #endif // End of Platform specific
 

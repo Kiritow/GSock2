@@ -60,45 +60,64 @@ std::string socket_native_lasterror()
 	return strerror_r(errno, buff, 1024);
 }
 
-#include <functional>
+struct epoll::_impl
+{
+	int fd;
+	int n;
+	std::vector<epoll_event> vec;
 
-epoll::epoll(int MaxListen) : _evec(MaxListen)
+	_impl(int size) : vec(size)
+	{
+		fd = epoll_create(size);
+	}
+
+	~_impl()
+	{
+		if (fd >= 0)
+		{
+			close(fd);
+		}
+	}
+};
+
+epoll::epoll(int size) : _p(new _impl(size))
 {
-	_fd = epoll_create(MaxListen); // this parameter is useless.
+	
 }
-epoll::~epoll()
-{
-	close(_fd);
-}
+
 int epoll::add(basic_sock& v, int event)
 {
 	struct epoll_event ev;
 	ev.events = event;
 	ev.data.ptr = &v;
-	return epoll_ctl(_fd, EPOLL_CTL_ADD, v._vp->fd, &ev);
+	return epoll_ctl(_p->fd, EPOLL_CTL_ADD, v._vp->fd, &ev);
 }
+
 int epoll::mod(basic_sock& v, int event)
 {
 	struct epoll_event ev;
 	ev.events = event;
 	ev.data.ptr = &v;
-	return epoll_ctl(_fd, EPOLL_CTL_MOD, v._vp->fd, &ev);
+	return epoll_ctl(_p->fd, EPOLL_CTL_MOD, v._vp->fd, &ev);
 }
+
 int epoll::del(basic_sock& v)
 {
-	return epoll_ctl(_fd, EPOLL_CTL_DEL, v._vp->fd, NULL);
+	return epoll_ctl(_p->fd, EPOLL_CTL_DEL, v._vp->fd, NULL);
 }
+
 int epoll::wait(int timeout)
 {
-	return _n = epoll_wait(_fd, _evec.data(), _evec.size(), timeout);
+	return _p->n = epoll_wait(_p->fd, _p->vec.data(), _p->vec.size(), timeout);
 }
+
 void epoll::handle(const std::function<void(basic_sock&, int)>& callback)
 {
-	if (_n > 0)
+	if (_p->n > 0)
 	{
-		for (int i = 0; i < _n; i++)
+		for (int i = 0; i < _p->n; i++)
 		{
-			callback(*((basic_sock*)(_evec[i].data.ptr)), (int)(_evec[i].events));
+			callback(*((basic_sock*)(_p->vec[i].data.ptr)), (int)(_p->vec[i].events));
 		}
 	}
 }
