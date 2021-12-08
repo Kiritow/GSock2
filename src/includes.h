@@ -62,7 +62,7 @@ class basic_sock::_impl
 {
 public:
 	int fd;
-	bool nb, inited;
+	bool nb, inited, lp;
 	int af_protocol, sock_type;
 
 	_impl();

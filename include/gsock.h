@@ -328,6 +328,41 @@ public:
 };
 
 #ifdef WIN32 // Windows: IOCP. Coming soon...
+#include <functional>
+#include <mutex>
+
+class iocp_connection
+{
+public:
+	virtual void onData(const char* buffer, int size) = 0;
+	virtual void onClose() = 0;
+	virtual void onError() = 0;
+
+	int send(const void* buffer, int size);
+	void close();
+
+	std::mutex _m;
+	std::vector<char> _data;
+	int _s;
+	bool _c;
+	class iocp* _controller;
+};
+
+class iocp
+{
+public:
+	iocp(int threads = 0);
+	
+	// use_family:
+	// 0,1: IPv4
+	// 2: IPv6
+	serversock newTCPServer(int use_family = 0);
+
+	int run(const basic_sock&, const std::function<iocp_connection*(iocp*)> onConnection);
+
+	struct _impl;
+	std::shared_ptr<_impl> _p;
+};
 
 #else // Linux: epoll
 #include <sys/epoll.h>

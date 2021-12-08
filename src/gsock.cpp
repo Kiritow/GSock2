@@ -79,7 +79,7 @@ std::string GetLastNativeError()
 }
 
 
-basic_sock::_impl::_impl() : fd(-1), nb(false), inited(false), af_protocol(0), sock_type(SOCK_STREAM) {}
+basic_sock::_impl::_impl() : fd(-1), nb(false), lp(false), inited(false), af_protocol(0), sock_type(SOCK_STREAM) {}
 basic_sock::_impl::~_impl()
 {
 	if (fd >= 0)
