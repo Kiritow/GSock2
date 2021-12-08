@@ -51,6 +51,7 @@ class basic_sock
 public:
 	basic_sock();
 	operator bool() const;
+	bool operator == (const basic_sock&) const;
 
 	class _impl;
 	std::shared_ptr<_impl> _vp;
@@ -219,7 +220,6 @@ public:
 	int accept(sock&);
 
 	struct _impl;
-	std::shared_ptr<_impl> _p;
 };
 
 class nbserversock : public serversock
@@ -301,7 +301,6 @@ public:
 	int recv(void* buffer, int bufferLength);
 
 	struct _impl;
-	std::shared_ptr<_impl> _p;
 };
 
 /// Select
@@ -355,7 +354,33 @@ public:
 	// callback: void event_handler(basic_sock& s,int event)
 	void handle(const std::function<void(basic_sock&, int)>& callback);
 
-	~epoll();
+	class iterator_data
+	{
+	public:
+		basic_sock s;
+		uint32_t events;
+
+		iterator_data(const basic_sock&);
+	};
+
+	class base_iterator
+	{
+	public:
+		iterator_data& operator * ();
+		iterator_data* operator ->();
+		bool operator != (const base_iterator&);
+		void operator ++ ();
+		
+		base_iterator(std::vector<epoll_event>&, basic_sock&, int, int);
+		
+		std::vector<epoll_event>& _vec;
+		iterator_data _data;
+		int _i;
+		int _n;
+	};
+
+	base_iterator begin();
+	base_iterator end();
 
 	struct _impl;
 	std::shared_ptr<_impl> _p;

@@ -65,6 +65,7 @@ struct epoll::_impl
 	int fd;
 	int n;
 	std::vector<epoll_event> vec;
+	basic_sock not_used;
 
 	_impl(int size) : vec(size)
 	{
@@ -89,7 +90,7 @@ int epoll::add(basic_sock& v, int event)
 {
 	struct epoll_event ev;
 	ev.events = event;
-	ev.data.ptr = &v;
+	ev.data.ptr = v._vp.get();
 	return epoll_ctl(_p->fd, EPOLL_CTL_ADD, v._vp->fd, &ev);
 }
 
@@ -97,7 +98,7 @@ int epoll::mod(basic_sock& v, int event)
 {
 	struct epoll_event ev;
 	ev.events = event;
-	ev.data.ptr = &v;
+	ev.data.ptr = v._vp.get();
 	return epoll_ctl(_p->fd, EPOLL_CTL_MOD, v._vp->fd, &ev);
 }
 
@@ -120,6 +121,56 @@ void epoll::handle(const std::function<void(basic_sock&, int)>& callback)
 			callback(*((basic_sock*)(_p->vec[i].data.ptr)), (int)(_p->vec[i].events));
 		}
 	}
+}
+
+epoll::iterator_data::iterator_data(const basic_sock& bs) : s(bs), events(0) {}
+
+epoll::base_iterator::base_iterator(std::vector<epoll_event>& vec, basic_sock& holder, int i, int n) :
+	_data(holder), _vec(vec), _i(i), _n(n)
+{
+	if (_i < _n)
+	{
+		_data.s._vp.reset((basic_sock::_impl*)_vec[_i].data.ptr, [](basic_sock::_impl*) {});
+		_data.events = _vec[_i].events;
+	}
+}
+
+bool epoll::base_iterator::operator!=(const epoll::base_iterator& iter)
+{
+	return _i != iter._i;
+}
+
+void epoll::base_iterator::operator++()
+{
+	if (_i < _n)
+	{
+		++_i;
+		if (_i < _n)
+		{
+			_data.s._vp.reset((basic_sock::_impl*)_vec[_i].data.ptr, [](basic_sock::_impl*) {});
+			_data.events = _vec[_i].events;
+		}
+	}
+}
+
+epoll::iterator_data& epoll::base_iterator::operator * ()
+{
+	return _data;
+}
+
+epoll::iterator_data* epoll::base_iterator::operator -> ()
+{
+	return &_data;
+}
+
+epoll::base_iterator epoll::begin()
+{
+	return base_iterator(_p->vec, _p->not_used, 0, _p->n);
+}
+
+epoll::base_iterator epoll::end()
+{
+	return base_iterator(_p->vec, _p->not_used, _p->n, _p->n);
 }
 
 #endif

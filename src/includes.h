@@ -63,11 +63,11 @@ class basic_sock::_impl
 public:
 	int fd;
 	bool nb, inited;
-	int type;
+	int af_protocol, sock_type;
 
 	_impl();
 	~_impl();
-	int create(int af_protocol);
+	int create();
 	int connect_v4(const char* ip, int port);
 	int connect_v6(const char* ip, int port);
 	int _create_and_connect(int af_protocol, const sockaddr* paddr, int szaddr);

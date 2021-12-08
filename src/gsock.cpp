@@ -79,7 +79,7 @@ std::string GetLastNativeError()
 }
 
 
-basic_sock::_impl::_impl() : fd(-1), nb(false), inited(false), type(SOCK_STREAM) {}
+basic_sock::_impl::_impl() : fd(-1), nb(false), inited(false), af_protocol(0), sock_type(SOCK_STREAM) {}
 basic_sock::_impl::~_impl()
 {
 	if (fd >= 0)
@@ -88,12 +88,12 @@ basic_sock::_impl::~_impl()
 	}
 }
 
-int basic_sock::_impl::create(int af_protocol)
+int basic_sock::_impl::create()
 {
 	if (inited) return GSOCK_INVALID_SOCKET;
 	inited = true;
 		
-	fd = socket(af_protocol, type, 0);
+	fd = socket(af_protocol, sock_type, 0);
 	if (fd < 0)
 	{
 		myliblog("socket() returns %d. WSAGetLastError: %d\n", fd, WSAGetLastError());
@@ -145,9 +145,10 @@ int basic_sock::_impl::connect_v6(const char* ip, int port)
 	return _create_and_connect(AF_INET6, (sockaddr*)&saddr, sizeof(saddr));
 }
 
-int basic_sock::_impl::_create_and_connect(int af_protocol, const sockaddr* paddr, int szaddr)
+int basic_sock::_impl::_create_and_connect(int protocol, const sockaddr* paddr, int szaddr)
 {
-	if (int ret = create(af_protocol); ret < 0) return ret;
+	af_protocol = protocol;
+	if (int ret = create(); ret < 0) return ret;
 	return ::connect(fd, paddr, szaddr);
 }
 
@@ -156,6 +157,11 @@ basic_sock::basic_sock() : _vp(new _impl) {}
 basic_sock::operator bool() const
 {
 	return _vp->inited && _vp->fd >= 0;
+}
+
+bool basic_sock::operator==(const basic_sock& s) const
+{
+	return _vp == s._vp;
 }
 
 int sock::connect(const std::string& ip, int port)
@@ -281,50 +287,44 @@ int sock::getPeer(std::string& ip, int& port)
 struct serversock::_impl
 {
 public:
-	int protocol;
-
-	int create(serversock& ss)
+	static int create(serversock& ss)
 	{
-		if (protocol == 0)
+		if (ss._vp->af_protocol == 0)
 		{
-			protocol = AF_INET;
-			myliblog("Protocol decided to %s in serversock %p\n", get_family_name(_p->protocol), this);
+			ss._vp->af_protocol = AF_INET;
+			myliblog("Protocol decided to %s in serversock %p\n", get_family_name(ss._vp->af_protocol), this);
 		}
 
-		return ss._vp->create(protocol);
+		return ss._vp->create();
 	}
 
-	int ensure(serversock& ss)
+	static int ensure(serversock& ss)
 	{
 		if (ss._vp->inited) return ss ? 0 : GSOCK_INVALID_SOCKET;
 		return create(ss);
 	}
 };
 
-serversock::serversock(int use_family) :_p(new _impl)
+serversock::serversock(int use_family)
 {
 	if (use_family == 1)
 	{
-		_p->protocol = AF_INET;
+		_vp->af_protocol = AF_INET;
 		myliblog("Protocol decided to %s in serversock %p\n", get_family_name(_pp->protocol), this);
 	}
 	else if (use_family == 2)
 	{
-		_p->protocol = AF_INET6;
+		_vp->af_protocol = AF_INET6;
 		myliblog("Protocol decided to %s in serversock %p\n", get_family_name(_pp->protocol), this);
-	}
-	else
-	{
-		_p->protocol = 0;
 	}
 }
 
 int serversock::bind(int port)
 {
 	myliblog("serversock::bind(%d) %p\n", port, this);
-	if (int ret = _p->ensure(*this); ret < 0) return ret;
+	if (int ret = serversock::_impl::ensure(*this); ret < 0) return ret;
 
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		sockaddr_in saddr;
 
@@ -349,9 +349,9 @@ int serversock::bind(int port)
 int serversock::bind(const std::string& ip, int port)
 {
 	myliblog("serversock::bind(%s, %d) %p\n", ip.c_str(), port, this);
-	if (int ret = _p->ensure(*this); ret < 0) return ret;
+	if (int ret = serversock::_impl::ensure(*this); ret < 0) return ret;
 
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		sockaddr_in saddr;
 
@@ -382,31 +382,30 @@ int serversock::bind(const std::string& ip, int port)
 
 int serversock::setReuse()
 {
-	if (int ret = _p->ensure(*this); ret < 0) return ret;
+	if (int ret = serversock::_impl::ensure(*this); ret < 0) return ret;
 	socklen_t opt = 1;
 	return setsockopt(_vp->fd, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
 }
 
 int serversock::listen(int backlog)
 {
-	if (int ret = _p->ensure(*this); ret < 0) return ret;
+	if (int ret = serversock::_impl::ensure(*this); ret < 0) return ret;
 	return ::listen(_vp->fd, backlog);
 }
 
 int serversock::accept(sock& outs)
 {
-	// sock outs has been connected.
-	if (outs) return GSOCK_INVALID_SOCKET;
-	if (!*this) return GSOCK_INVALID_SOCKET;
+	// failed if `outs` has been connected.
+	if (!*this || outs) return GSOCK_INVALID_SOCKET;
 
 	sock c; /// empty socket.
 
 	sockaddr_in saddr;
 	sockaddr_in6 saddr6;
-	socklen_t saddrsz = (_p->protocol == AF_INET) ? sizeof(saddr) : sizeof(saddr6);
+	socklen_t saddrsz = (_vp->af_protocol == AF_INET) ? sizeof(saddr) : sizeof(saddr6);
 
 	int ret;
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		ret = ::accept(_vp->fd, (sockaddr*)&(saddr), &saddrsz);
 	}
@@ -422,7 +421,6 @@ int serversock::accept(sock& outs)
 		return GSOCK_API_ERROR;
 	}
 	
-
 	c._vp->inited = true;
 	c._vp->fd = ret;
 
@@ -438,7 +436,7 @@ NBAcceptResult nbserversock::accept()
 	NBAcceptResult res;
 
 	res._sp->sfd = _vp->fd;
-	res._sp->sproto = _p->protocol;
+	res._sp->sproto = _vp->af_protocol;
 	res._sp->update();
 
 	return res;
@@ -446,54 +444,52 @@ NBAcceptResult nbserversock::accept()
 
 struct udpsock::_impl
 {
-	int protocol;
-
-	int create(udpsock& s)
+	static int create(udpsock& s)
 	{
-		if (protocol == 0)
+		if (s._vp->af_protocol == 0)
 		{
-			protocol = AF_INET;
-			myliblog("Protocol decided to %s in serversock %p\n", get_family_name(_p->protocol), this);
+			s._vp->af_protocol = AF_INET;
+			myliblog("Protocol decided to %s in serversock %p\n", get_family_name(s._vp->af_protocol), this);
 		}
 
-		return s._vp->create(protocol);
+		return s._vp->create();
 	}
 
-	int ensure(udpsock& s, int want_protocol)
+	static int ensure(udpsock& s, int want_protocol)
 	{
 		if (s._vp->inited)
 		{
 			if (s)
 			{
-				if (want_protocol && protocol != want_protocol) return GSOCK_MISMATCH_PROTOCOL;
+				if (want_protocol && s._vp->af_protocol != want_protocol) return GSOCK_MISMATCH_PROTOCOL;
 				return 0;
 			}
 
 			return GSOCK_INVALID_SOCKET;
 		}
 
-		protocol = want_protocol;
+		s._vp->af_protocol = want_protocol;
 		return create(s);
 	}
 };
 
-udpsock::udpsock(int use_family) : _p(new _impl)
+udpsock::udpsock(int use_family)
 {
-	_vp->type = SOCK_DGRAM;
+	_vp->sock_type = SOCK_DGRAM;
 
 	if (use_family == 1)
 	{
-		_p->protocol = AF_INET;
+		_vp->af_protocol = AF_INET;
 		myliblog("Protocol decided to %s in udpsock %p\n", get_family_name(_p->protocol), this);
 	}
 	else if (use_family == 2)
 	{
-		_p->protocol = AF_INET6;
+		_vp->af_protocol = AF_INET6;
 		myliblog("Protocol decided to %s in udpsock %p\n", get_family_name(_p->protocol), this);
 	}
 	else
 	{
-		_p->protocol = 0;
+		_vp->af_protocol = 0;
 	}
 }
 
@@ -578,16 +574,16 @@ int udpsock::connect(const std::string& ip, int port)
 	sockaddr* paddr;
 	socklen_t addrsz;
 
-	int ret = convert_ipv46(ip, port, paddr, addrsz, saddr, saddr6, _p->protocol);
+	int ret = convert_ipv46(ip, port, paddr, addrsz, saddr, saddr6, _vp->af_protocol);
 	if (ret < 0) return ret;
 
 	if (ret == 0)
 	{
-		ret = _p->ensure(*this, AF_INET);
+		ret = udpsock::_impl::ensure(*this, AF_INET);
 	}
 	else
 	{
-		ret = _p->ensure(*this, AF_INET6);
+		ret = udpsock::_impl::ensure(*this, AF_INET6);
 	}
 
 	if (ret < 0)
@@ -600,7 +596,7 @@ int udpsock::connect(const std::string& ip, int port)
 
 int udpsock::set_broadcast()
 {
-	if (int ret = _p->ensure(*this, 0); ret < 0) return ret;
+	if (int ret = udpsock::_impl::ensure(*this, 0); ret < 0) return ret;
 
 	socklen_t opt = 1;
 	return ::setsockopt(_vp->fd, SOL_SOCKET, SO_BROADCAST, (const char*)&opt, sizeof(opt));
@@ -608,9 +604,9 @@ int udpsock::set_broadcast()
 
 int udpsock::bind(int port)
 {
-	if (int ret = _p->ensure(*this, 0); ret < 0) return ret;
+	if (int ret = udpsock::_impl::ensure(*this, 0); ret < 0) return ret;
 
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		sockaddr_in saddr;
 		memset(&saddr, 0, sizeof(saddr));
@@ -634,9 +630,9 @@ int udpsock::bind(int port)
 
 int udpsock::bind(const std::string& ip, int port)
 {
-	if (int ret = _p->ensure(*this, 0); ret < 0) return ret;
+	if (int ret = udpsock::_impl::ensure(*this, 0); ret < 0) return ret;
 
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		sockaddr_in saddr;
 		memset(&saddr, 0, sizeof(saddr));
@@ -671,10 +667,10 @@ int udpsock::sendto(const std::string& ip, int port, const void* buffer, int len
 	sockaddr* paddr;
 	socklen_t addrsz;
 
-	int ret = convert_ipv46(ip, port, paddr, addrsz, saddr, saddr6, _p->protocol);
+	int ret = convert_ipv46(ip, port, paddr, addrsz, saddr, saddr6, _vp->af_protocol);
 	if (ret < 0) return ret;
 
-	ret = _p->ensure(*this, ret == 0 ? AF_INET : AF_INET6);
+	ret = udpsock::_impl::ensure(*this, ret == 0 ? AF_INET : AF_INET6);
 	if (ret < 0) return ret;
 
 	return ::sendto(_vp->fd, (const char*)buffer, length, 0, (const sockaddr*)paddr, addrsz);
@@ -682,9 +678,9 @@ int udpsock::sendto(const std::string& ip, int port, const void* buffer, int len
 
 int udpsock::broadcast(int port, const void* buffer, int length)
 {
-	if (int ret = _p->ensure(*this, 0); ret < 0) return ret;
+	if (int ret = udpsock::_impl::ensure(*this, 0); ret < 0) return ret;
 
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		sockaddr_in saddr;
 		memset(&saddr, 0, sizeof(saddr));
@@ -702,9 +698,9 @@ int udpsock::broadcast(int port, const void* buffer, int length)
 
 int udpsock::recvfrom(std::string& ip, int& port, void* buffer, int bufferLength)
 {
-	if (int ret = _p->ensure(*this, 0); ret < 0) return ret;
+	if (int ret = udpsock::_impl::ensure(*this, 0); ret < 0) return ret;
 
-	if (_p->protocol == AF_INET)
+	if (_vp->af_protocol == AF_INET)
 	{
 		sockaddr_in saddr;
 		socklen_t saddrlen = sizeof(saddr);
@@ -926,8 +922,3 @@ int DNSResolve(const std::string& HostName, std::string& _out_IPStr)
 	_out_IPStr = vec[0];
 	return 0;
 }
-
-
-/// Undefine marcos
-#undef myliblog_ex
-#undef myliblog
