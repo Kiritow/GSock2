@@ -64,6 +64,31 @@ int main()
 }
 ```
 
+### TLS client
+
+```cpp
+int main()
+{
+    int ret;
+    sslsock s;
+    ret = s.loadVerifyLocation("cacert.pem");
+    cout << "sslsock loadVerifyLocation " << ret << endl;
+    ret = s.connect("github.com", 443);
+    cout << "sslsock connect " << ret << endl;
+
+    string str = "GET / HTTP/1.1\r\nHost: github.com\r\nConnection: close\r\n\r\n";
+    ret = s.send(str.c_str(), str.size());
+    cout << "sslsock send: " << ret << endl;
+
+    char buffer[10240] = { 0 };
+    ret = s.recv(buffer, 10240);
+    cout << buffer << endl;
+    cout << "sslsock recv: " << ret << endl;
+
+    return 0;
+}
+```
+
 ### IOCP
 
 ```cpp
@@ -114,27 +139,52 @@ int main()
 }
 ```
 
-### TLS client
+### Epoll
 
 ```cpp
 int main()
 {
-    int ret;
-    sslsock s;
-    ret = s.loadVerifyLocation("cacert.pem");
-    cout << "sslsock loadVerifyLocation " << ret << endl;
-    ret = s.connect("github.com", 443);
-    cout << "sslsock connect " << ret << endl;
+    serversock ss;
+    cout << "setReuse: " << ss.setReuse() << " error: " << GetLastNativeError() << endl;
+    cout << "bind: " << ss.bind(12345) << " error: " << GetLastNativeError() << endl;
+    cout << "listen: " << ss.listen(10) << " error: " << GetLastNativeError() << endl;
 
-    string str = "GET / HTTP/1.1\r\nHost: github.com\r\nConnection: close\r\n\r\n";
-    ret = s.send(str.c_str(), str.size());
-    cout << "sslsock send: " << ret << endl;
+    epoll ep(1024);
+    ep.add(ss, EPOLLIN);
+    vector<sock> vec;
+    
+    while (1)
+    {
+        cout << "wait: " << ep.wait(-1) << " error: " << GetLastNativeError() << endl;
+        for (auto& ev : ep)
+        {
+            if (ev.s == ss)
+            {
+                sock s;
+                cout << "accept: " << ss.accept(s) << " error: " << GetLastNativeError() << endl;
+                ep.add(s, EPOLLIN);
+                vec.push_back(s);
+                continue;
+            }
 
-    char buffer[10240] = { 0 };
-    ret = s.recv(buffer, 10240);
-    cout << buffer << endl;
-    cout << "sslsock recv: " << ret << endl;
-
-    return 0;
+            for (auto iter = vec.begin(); iter != vec.end(); iter++)
+            {
+                if (ev.s == *iter)
+                {
+                    char buff[1024] = { 0 };
+                    int ret = iter->recv(buff, 1024);
+                    if (ret <= 0)
+                    {
+                        cout << "recv: " << ret << " error: " << GetLastNativeError() << endl;
+                        ep.del(ev.s);
+                        vec.erase(iter);
+                        break;
+                    }
+                    
+                    cout << string(buff, ret);
+                }
+            }
+        }
+    }
 }
 ```
