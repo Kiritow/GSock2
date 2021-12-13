@@ -426,7 +426,7 @@ public:
 #endif // End of Platform specific
 
 #ifndef GSOCK_NO_SSL
-class sslsock
+class sslsock : public basic_sock
 {
 public:
 	sslsock();
@@ -437,7 +437,8 @@ public:
 	int send(const void* buffer, int length);
 	int recv(void* buffer, int length);
 
-
+	std::string getSubjectName();
+	std::string getIssuerName();
 
 	struct _impl;
 	std::shared_ptr<_impl> _p;

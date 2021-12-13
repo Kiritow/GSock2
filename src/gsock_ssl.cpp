@@ -1,4 +1,4 @@
-#include "gsock.h"
+#include "includes.h"
 
 #ifndef GSOCK_NO_SSL
 #include <openssl/ssl.h>
@@ -77,19 +77,6 @@ int sslsock::connect(const std::string& host, int port)
 		return -1;
 	}
 
-	X509* cert = SSL_get_peer_certificate(_p->getSSL());
-	if (!cert)
-	{
-		fprintf(stderr, "no cert found on peer server\n");
-		return -1;
-	}
-	char buff[10240] = { 0 };
-	X509_NAME_oneline(X509_get_subject_name(cert), buff, 10240);
-	printf("Subject: %s\n", buff);
-	X509_NAME_oneline(X509_get_issuer_name(cert), buff, 10240);
-	printf("Issuer: %s\n", buff);
-	X509_free(cert);
-
 	// verify certificate
 	int err = SSL_get_verify_result(_p->getSSL());
 	if (err != X509_V_OK)
@@ -99,8 +86,14 @@ int sslsock::connect(const std::string& host, int port)
 		return -1;
 	}
 
-	
+	BIO_get_fd(_p->bio, &(_vp->fd));
 
+	sockaddr addr;
+	socklen_t slen = sizeof(addr);
+	getpeername(_vp->fd, &addr, &slen);
+	_vp->af_protocol = addr.sa_family;  // AF_INET, AF_INET6
+	
+	_vp->inited = true;
 	return 0;
 }
 
@@ -114,6 +107,38 @@ int sslsock::send(const void* buffer, int length)
 int sslsock::recv(void* buffer, int length)
 {
 	return BIO_read(_p->bio, buffer, length);
+}
+
+std::string sslsock::getSubjectName()
+{
+	X509* cert = SSL_get_peer_certificate(_p->getSSL());
+	if (!cert)
+	{
+		fprintf(stderr, "no cert found on peer server\n");
+		return std::string();
+	}
+
+	char buff[10240] = { 0 };
+	X509_NAME_oneline(X509_get_subject_name(cert), buff, 10240);
+	X509_free(cert);
+
+	return std::string(buff);
+}
+
+std::string sslsock::getIssuerName()
+{
+	X509* cert = SSL_get_peer_certificate(_p->getSSL());
+	if (!cert)
+	{
+		fprintf(stderr, "no cert found on peer server\n");
+		return std::string();
+	}
+
+	char buff[10240] = { 0 };
+	X509_NAME_oneline(X509_get_issuer_name(cert), buff, 10240);
+	X509_free(cert);
+
+	return std::string(buff);
 }
 
 #endif
