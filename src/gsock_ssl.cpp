@@ -9,6 +9,7 @@ void print_ssl_error(const std::string& str)
 {
 	fprintf(stderr, "%s: ", str.c_str());
 	ERR_print_errors_fp(stderr);
+	fprintf(stderr, "\n");
 }
 
 struct sslsock::_impl
@@ -105,13 +106,21 @@ int sslsock::connect(const std::string& host, int port)
 int sslsock::send(const void* buffer, int length)
 {
 	int ret = BIO_write(_p->bio, buffer, length);
-	// BIO_flush(_p->bio);
+	if (ret < 0)
+	{
+		print_ssl_error("BIO_write");
+	}
 	return ret;
 }
 
 int sslsock::recv(void* buffer, int length)
 {
-	return BIO_read(_p->bio, buffer, length);
+	int ret = BIO_read(_p->bio, buffer, length);
+	if (ret < 0)
+	{
+		print_ssl_error("BIO_read");
+	}
+	return ret;
 }
 
 std::string sslsock::getSubjectName()
@@ -164,6 +173,18 @@ struct sslserversock::_impl
 		BIO_free_all(bio);
 		SSL_CTX_free(ctx);
 	}
+
+	void update_vp(sslserversock& s)
+	{
+		BIO_get_fd(bio, &(s._vp->fd));
+
+		sockaddr addr;
+		socklen_t slen = sizeof(addr);
+		getpeername(s._vp->fd, &addr, &slen);
+		s._vp->af_protocol = addr.sa_family;  // AF_INET, AF_INET6
+
+		s._vp->inited = true;
+	}
 };
 
 sslserversock::sslserversock() : _p(new _impl)
@@ -185,7 +206,13 @@ int sslserversock::bind(int port)
 {
 	std::string str = std::to_string(port);
 	_p->bio = BIO_new_accept(str.c_str());
-	return BIO_do_accept(_p->bio);
+	if (int ret = BIO_do_accept(_p->bio); ret < 0)
+	{
+		print_ssl_error("BIO_do_accept");
+		return ret;
+	}
+
+	_p->update_vp(*this);
 }
 
 sslsock sslserversock::accept()
@@ -197,14 +224,18 @@ sslsock sslserversock::accept()
 	}
 	
 	BIO* newBio = BIO_pop(_p->bio);
-	BIO* clientBio = BIO_push(BIO_new_ssl(_p->ctx, 0), newBio);
 
 	sslsock client;
 	SSL_CTX_free(client._p->ctx);
 	client._p->ctx = nullptr;
-	client._p->bio = clientBio;
-
+	client._p->bio = BIO_push(BIO_new_ssl(_p->ctx, 0), newBio);
 	client._p->update_vp(client);
+
+	// Do handshake here in case you want to send before recv.
+	if (BIO_do_handshake(client._p->bio) <= 0)
+	{
+		return sslsock();
+	}
 
 	return client;
 }
