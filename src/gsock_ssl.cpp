@@ -7,9 +7,9 @@
 
 void print_ssl_error(const std::string& str)
 {
-	fprintf(stderr, "%s: ", str.c_str());
-	ERR_print_errors_fp(stderr);
-	fprintf(stderr, "\n");
+	printf("%s: ", str.c_str());
+	ERR_print_errors_fp(stdout);
+	printf("\n");
 }
 
 struct sslsock::_impl
