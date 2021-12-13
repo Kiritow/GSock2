@@ -44,23 +44,23 @@ Download [CA certificates extracted from Mozilla](https://curl.se/docs/caextract
 int main()
 {
     sock s;
-	cout << "connect: " << s.connect("127.0.0.1", 8082) << endl;
-	cout << GetLastNativeError() << endl;
+    cout << "connect: " << s.connect("127.0.0.1", 8082) << endl;
+    cout << GetLastNativeError() << endl;
 
-	string buffer = "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
-	s.send(buffer.data(), buffer.size());
+    string buffer = "GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    s.send(buffer.data(), buffer.size());
 
-	char buf[1024];
-	while (1)
-	{
-		if (int ret = s.recv(buf, 1024); ret > 0)
-		{
-			cout << string(buf, ret);
-		}
-		else break;
-	}
-	cout << endl;
-	return 0;
+    char buf[1024];
+    while (1)
+    {
+        if (int ret = s.recv(buf, 1024); ret > 0)
+        {
+            cout << string(buf, ret);
+        }
+        else break;
+    }
+    cout << endl;
+    return 0;
 }
 ```
 
@@ -70,47 +70,47 @@ int main()
 class my_iocp : public iocp_connection
 {
 public:
-	string str;
+    string str;
 
-	void onData(const char* buffer, int size)
-	{
-		str += string(buffer, size);
-		if (str.find("\r\n\r\n") != string::npos)
-		{
-			cout << "got full request: " << str << endl;
-			cout << "sending response " << endl;
-			string buffer = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nHi";
-			send(buffer.c_str(), buffer.size());
-			close();
-		}
-	}
-	
-	void onClose()
-	{
-		cout << this << " onClose" << endl;
-	}
+    void onData(const char* buffer, int size)
+    {
+        str += string(buffer, size);
+        if (str.find("\r\n\r\n") != string::npos)
+        {
+            cout << "got full request: " << str << endl;
+            cout << "sending response " << endl;
+            string buffer = "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nHi";
+            send(buffer.c_str(), buffer.size());
+            close();
+        }
+    }
+    
+    void onClose()
+    {
+        cout << this << " onClose" << endl;
+    }
 
-	void onError()
-	{
-		cout << this << " onError " << GetLastNativeError() << endl;
-	}
+    void onError()
+    {
+        cout << this << " onError " << GetLastNativeError() << endl;
+    }
 };
 
 int main()
 {
-	iocp looper;
-	serversock ss = looper.newTCPServer();
-	cout << "bind: " << ss.bind(12345) << " error: " << GetLastNativeError() << endl;
-	cout << "listen: " << ss.listen(10) << " error: " << GetLastNativeError() << endl;
+    iocp looper;
+    serversock ss = looper.newTCPServer();
+    cout << "bind: " << ss.bind(12345) << " error: " << GetLastNativeError() << endl;
+    cout << "listen: " << ss.listen(10) << " error: " << GetLastNativeError() << endl;
 
-	auto fn = [](iocp*) {
-		return new my_iocp;
-	};
+    auto fn = [](iocp*) {
+        return new my_iocp;
+    };
 
-	int ret = looper.run(ss, fn);
-	cout << "looper.run: " << ret << " error: " << GetLastNativeError() << endl;
+    int ret = looper.run(ss, fn);
+    cout << "looper.run: " << ret << " error: " << GetLastNativeError() << endl;
 
-	return ret;
+    return ret;
 }
 ```
 
@@ -120,21 +120,21 @@ int main()
 int main()
 {
     int ret;
-	sslsock s;
-	ret = s.loadVerifyLocation("cacert.pem");
-	cout << "sslsock loadVerifyLocation " << ret << endl;
-	ret = s.connect("github.com", 443);
-	cout << "sslsock connect " << ret << endl;
+    sslsock s;
+    ret = s.loadVerifyLocation("cacert.pem");
+    cout << "sslsock loadVerifyLocation " << ret << endl;
+    ret = s.connect("github.com", 443);
+    cout << "sslsock connect " << ret << endl;
 
-	string str = "GET / HTTP/1.1\r\nHost: github.com\r\nConnection: close\r\n\r\n";
-	ret = s.send(str.c_str(), str.size());
-	cout << "sslsock send: " << ret << endl;
+    string str = "GET / HTTP/1.1\r\nHost: github.com\r\nConnection: close\r\n\r\n";
+    ret = s.send(str.c_str(), str.size());
+    cout << "sslsock send: " << ret << endl;
 
-	char buffer[10240] = { 0 };
-	ret = s.recv(buffer, 10240);
-	cout << buffer << endl;
-	cout << "sslsock recv: " << ret << endl;
+    char buffer[10240] = { 0 };
+    ret = s.recv(buffer, 10240);
+    cout << buffer << endl;
+    cout << "sslsock recv: " << ret << endl;
 
-	return 0;
+    return 0;
 }
 ```
