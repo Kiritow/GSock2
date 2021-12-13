@@ -4,13 +4,17 @@ Licensed under MIT
 
 ## Features
 
-- TCP blocking/non-blocking socket, support ipv4 and ipv6
+- TCP blocking/non-blocking socket
 
-- Udp socket, broadcast
+- UDP socket, broadcast
+
+- Seamless IPv4 and IPv6 support
 
 - select() support on all platform.
 
-- IOCP on windows, Epoll on linux are supported.
+- IOCP (Windows only)
+
+- Epoll (Linux only)
 
 - (Optional) SSL/TLS socket
 
