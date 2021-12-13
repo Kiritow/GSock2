@@ -443,6 +443,19 @@ public:
 	struct _impl;
 	std::shared_ptr<_impl> _p;
 };
+
+class sslserversock : public basic_sock
+{
+public:
+	sslserversock();
+	int useCAFile(const std::string& path);
+	int usePKFile(const std::string& path);
+	int bind(int port);
+	sslsock accept();
+	struct _impl;
+	std::shared_ptr<_impl> _p;
+};
+
 #endif
 
 /// Net Tools

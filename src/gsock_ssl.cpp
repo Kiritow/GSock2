@@ -39,6 +39,18 @@ struct sslsock::_impl
 		BIO_get_ssl(bio, &p);
 		return p;
 	}
+
+	void update_vp(sslsock& s)
+	{
+		BIO_get_fd(bio, &(s._vp->fd));
+
+		sockaddr addr;
+		socklen_t slen = sizeof(addr);
+		getpeername(s._vp->fd, &addr, &slen);
+		s._vp->af_protocol = addr.sa_family;  // AF_INET, AF_INET6
+
+		s._vp->inited = true;
+	}
 };
 
 sslsock::sslsock() : _p(new _impl)
@@ -86,14 +98,7 @@ int sslsock::connect(const std::string& host, int port)
 		return -1;
 	}
 
-	BIO_get_fd(_p->bio, &(_vp->fd));
-
-	sockaddr addr;
-	socklen_t slen = sizeof(addr);
-	getpeername(_vp->fd, &addr, &slen);
-	_vp->af_protocol = addr.sa_family;  // AF_INET, AF_INET6
-	
-	_vp->inited = true;
+	_p->update_vp(*this);
 	return 0;
 }
 
@@ -139,6 +144,69 @@ std::string sslsock::getIssuerName()
 	X509_free(cert);
 
 	return std::string(buff);
+}
+
+struct sslserversock::_impl
+{
+	SSL_CTX* ctx;
+	BIO* bio;
+
+	_impl()
+	{
+		ctx = SSL_CTX_new(TLS_method());
+		SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
+
+		bio = nullptr;
+	}
+
+	~_impl()
+	{
+		BIO_free_all(bio);
+		SSL_CTX_free(ctx);
+	}
+};
+
+sslserversock::sslserversock() : _p(new _impl)
+{
+
+}
+
+int sslserversock::useCAFile(const std::string& path)
+{
+	return SSL_CTX_use_certificate_file(_p->ctx, path.c_str(), SSL_FILETYPE_PEM);
+}
+
+int sslserversock::usePKFile(const std::string& path)
+{
+	return SSL_CTX_use_PrivateKey_file(_p->ctx, path.c_str(), SSL_FILETYPE_PEM);
+}
+
+int sslserversock::bind(int port)
+{
+	std::string str = std::to_string(port);
+	_p->bio = BIO_new_accept(str.c_str());
+	return BIO_do_accept(_p->bio);
+}
+
+sslsock sslserversock::accept()
+{
+	int ret = BIO_do_accept(_p->bio);
+	if (ret < 0)
+	{
+		return sslsock();
+	}
+	
+	BIO* newBio = BIO_pop(_p->bio);
+	BIO* clientBio = BIO_push(BIO_new_ssl(_p->ctx, 0), newBio);
+
+	sslsock client;
+	SSL_CTX_free(client._p->ctx);
+	client._p->ctx = nullptr;
+	client._p->bio = clientBio;
+
+	client._p->update_vp(client);
+
+	return client;
 }
 
 #endif
