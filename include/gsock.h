@@ -225,6 +225,8 @@ public:
 class nbserversock : public serversock
 {
 public:
+	nbserversock();
+
 	// Notice that bind() and listen() should be called before setNonBlocking()
 	NBAcceptResult accept();
 };
@@ -327,7 +329,7 @@ public:
 	std::shared_ptr<_impl> _pp;
 };
 
-#ifdef WIN32 // Windows: IOCP. Coming soon...
+#ifdef _WIN32 // Windows: IOCP. Coming soon...
 #include <functional>
 #include <mutex>
 
@@ -344,7 +346,8 @@ public:
 	std::mutex _m;
 	std::vector<char> _data;
 	int _s;
-	bool _c;
+	bool _c;  // close after all data sent
+	void* _runner;  // runner
 	class iocp* _controller;
 };
 

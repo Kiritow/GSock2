@@ -431,6 +431,11 @@ int serversock::accept(sock& outs)
 	return 0;
 }
 
+nbserversock::nbserversock()
+{
+	_vp->nb = true;
+}
+
 NBAcceptResult nbserversock::accept()
 {
 	NBAcceptResult res;

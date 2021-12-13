@@ -2,6 +2,9 @@
 #include <iostream>
 
 #ifdef _WIN32
+
+#define winlog(fmt, ...) fprintf(stderr, "[Thread %u]" fmt "\n", GetCurrentThreadId(), __VA_ARGS__)
+
 int socket_set_nonblocking(int fd)
 {
 	u_long mode = 1;
@@ -161,6 +164,8 @@ struct iocp_io_data
 
 void iocp_conn_close(iocp_connection* conn)
 {
+	winlog("iocp_conn_close(%p)", conn);
+
 	conn->onClose();
 	closesocket(conn->_s);
 	delete conn;
@@ -170,6 +175,8 @@ void iocp_conn_close(iocp_connection* conn)
 
 int iocp_submit_read(iocp_io_data* ioData, HANDLE hIocp, iocp_connection* conn)
 {
+	winlog("iocp_submit_read(%p, %p, %p)", ioData, hIocp, conn);
+
 	iocp_io_data* pIoData = ioData;
 	if (!pIoData)
 	{
@@ -198,8 +205,10 @@ int iocp_submit_read(iocp_io_data* ioData, HANDLE hIocp, iocp_connection* conn)
 	return 0;
 }
 
-int iocp_submit_write(iocp_io_data* ioData, HANDLE hIocp, iocp_connection* conn)
+int iocp_submit_write(iocp_io_data* ioData, HANDLE hIocp, iocp_connection* conn, bool holdingLock)
 {
+	winlog("iocp_submit_write(%p, %p, %p, %d)", ioData, hIocp, conn, holdingLock);
+
 	iocp_io_data* pIoData = ioData;
 	if (!pIoData)
 	{
@@ -210,24 +219,34 @@ int iocp_submit_write(iocp_io_data* ioData, HANDLE hIocp, iocp_connection* conn)
 		pIoData->totalSize = 0;
 	}
 
-	// try load more data
+	std::unique_lock<std::mutex> ulk;
+	if (!holdingLock)
 	{
-		std::unique_lock<std::mutex> ulk(conn->_m);
-		int leftSize = sizeof(pIoData->buffer) - pIoData->totalSize;
-		int loadSize = min(conn->_data.size(), leftSize);
-		if (loadSize > 0)
-		{
-			memcpy(pIoData->buffer + pIoData->totalSize, conn->_data.data(), loadSize);
-			conn->_data.erase(conn->_data.begin(), conn->_data.begin() + loadSize);
-			pIoData->totalSize += loadSize;
-		}
+		ulk = std::unique_lock<std::mutex>(conn->_m);
+	}
+
+	conn->_runner = pIoData;
+
+	int leftSize = sizeof(pIoData->buffer) - pIoData->totalSize;
+	int loadSize = min(conn->_data.size(), leftSize);
+	if (loadSize > 0)
+	{
+		memcpy(pIoData->buffer + pIoData->totalSize, conn->_data.data(), loadSize);
+		conn->_data.erase(conn->_data.begin(), conn->_data.begin() + loadSize);
+		pIoData->totalSize += loadSize;
 	}
 
 	if (pIoData->totalSize < 1)
 	{
+		conn->_runner = NULL;
+
 		// All data are sent.
 		if (conn->_c)
 		{
+			winlog("GlobalFree(%p)", pIoData);
+			GlobalFree(pIoData);
+
+			// This will trigger close event, which should be handled in read side.
 			closesocket(conn->_s);
 		}
 		return 0;
@@ -252,8 +271,13 @@ int iocp_submit_write(iocp_io_data* ioData, HANDLE hIocp, iocp_connection* conn)
 
 int iocp_connection::send(const void* buffer, int size)
 {
+	std::unique_lock<std::mutex> ulk(_m);
 	_data.insert(_data.end(), (const char*)buffer, (const char*)buffer + size);
-	iocp_submit_write(NULL, _controller->_p->hIocp, this);
+
+	if (!_runner)
+	{
+		iocp_submit_write(NULL, _controller->_p->hIocp, this, true);
+	}
 	return size;
 }
 
@@ -268,9 +292,13 @@ int iocp::run(const basic_sock& ss, const std::function<iocp_connection*(iocp*)>
 
 	while (1)
 	{
+		winlog("WSAAccept(%d)", ss._vp->fd);
 		SOCKET newSocket = WSAAccept(ss._vp->fd, NULL, NULL, NULL, 0);
+		winlog("WSAAccept returns %d", newSocket);
+
 		if (newSocket == SOCKET_ERROR)
 		{
+			winlog("WSAAccept returns SOCKET_ERROR");
 			return -1;
 		}
 
@@ -283,6 +311,8 @@ int iocp::run(const basic_sock& ss, const std::function<iocp_connection*(iocp*)>
 		if (pHandleData == NULL)
 		{
 			iocp_conn_close(conn);
+
+			winlog("pHandleData GlobalAlloc returns NULL");
 			return -1;
 		}
 
@@ -290,8 +320,12 @@ int iocp::run(const basic_sock& ss, const std::function<iocp_connection*(iocp*)>
 
 		if (CreateIoCompletionPort((HANDLE)newSocket, _p->hIocp, (ULONG_PTR)pHandleData, 0) == NULL)
 		{
+			auto err = GetLastNativeError();
+			winlog("CreateIoCompletionPort returns error: %s", err.c_str());
+
 			GlobalFree(pHandleData);
 			iocp_conn_close(conn);
+
 			return -1;
 		}
 
@@ -314,11 +348,11 @@ DWORD WINAPI IOCPRunner(LPVOID lphIocp)
 		if (GetQueuedCompletionStatus(hIocp, &bytesTransferred, (PULONG_PTR)&pHandleData, (LPOVERLAPPED*)&pIoData, INFINITE) == 0)
 		{
 			auto err = socket_native_lasterror();
-			printf("GetQueuedCompletionStatus: %s\n", err.c_str());
+			winlog("GetQueuedCompletionStatus: %s", err.c_str());
 			return 0;
 		}
 		
-		std::cout << "bytesTransferred: " << bytesTransferred << " pHandleData " << pHandleData << " pIoData " << pIoData << std::endl;
+		winlog("bytesTransferred: %d, pHandleData: %p, pIoData: %p", bytesTransferred, pHandleData, pIoData);
 
 		if (!bytesTransferred)
 		{
@@ -337,7 +371,7 @@ DWORD WINAPI IOCPRunner(LPVOID lphIocp)
 			// Continue write
 			memmove(pIoData->buffer + bytesTransferred, pIoData->buffer, pIoData->totalSize - bytesTransferred);
 			pIoData->totalSize -= bytesTransferred;
-			iocp_submit_write(pIoData, hIocp, pHandleData->conn);
+			iocp_submit_write(pIoData, hIocp, pHandleData->conn, false);
 		}
 		else
 		{
