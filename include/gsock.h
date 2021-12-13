@@ -426,14 +426,14 @@ public:
 #endif // End of Platform specific
 
 #ifndef GSOCK_NO_SSL
-class sslsock : public basic_sock
+class sslsock : public sock
 {
 public:
 	sslsock();
 
 	int loadVerifyLocation(const std::string& path);
 
-	int connect(const std::string& host, int port);
+	int connect(const std::string& ip, int port);
 	int send(const void* buffer, int length);
 	int recv(void* buffer, int length);
 
@@ -444,14 +444,15 @@ public:
 	std::shared_ptr<_impl> _p;
 };
 
-class sslserversock : public basic_sock
+class sslserversock : public serversock
 {
 public:
 	sslserversock();
 	int useCAFile(const std::string& path);
 	int usePKFile(const std::string& path);
-	int bind(int port);
-	sslsock accept();
+
+	int accept(sslsock&);
+
 	struct _impl;
 	std::shared_ptr<_impl> _p;
 };

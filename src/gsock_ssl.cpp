@@ -15,7 +15,7 @@ void print_ssl_error(const std::string& str)
 struct sslsock::_impl
 {
 	SSL_CTX* ctx;
-	BIO* bio;
+	SSL* ssl;
 
 	_impl()
 	{
@@ -25,32 +25,13 @@ struct sslsock::_impl
 			print_ssl_error("SSL_CTX_set_default_verify_paths");
 		}
 
-		bio = nullptr;
+		ssl = nullptr;
 	}
 
 	~_impl()
 	{
-		BIO_free_all(bio);
+		SSL_free(ssl);
 		SSL_CTX_free(ctx);
-	}
-
-	SSL* getSSL()
-	{
-		SSL* p = nullptr;
-		BIO_get_ssl(bio, &p);
-		return p;
-	}
-
-	void update_vp(sslsock& s)
-	{
-		BIO_get_fd(bio, &(s._vp->fd));
-
-		sockaddr addr;
-		socklen_t slen = sizeof(addr);
-		getpeername(s._vp->fd, &addr, &slen);
-		s._vp->af_protocol = addr.sa_family;  // AF_INET, AF_INET6
-
-		s._vp->inited = true;
 	}
 };
 
@@ -64,48 +45,37 @@ int sslsock::loadVerifyLocation(const std::string& path)
 	return SSL_CTX_load_verify_locations(_p->ctx, path.c_str(), NULL);
 }
 
-int sslsock::connect(const std::string& host, int port)
+int sslsock::connect(const std::string& ip, int port)
 {
-	std::string bioHost = host + ":" + std::to_string(port);
-
-	_p->bio = BIO_new_connect(bioHost.c_str());
-	if (!_p->bio)
+	if (int ret = sock::connect(ip, port); ret < 0)
 	{
-		print_ssl_error("BIO_new_connect");
-		return -1;
+		return ret;
 	}
 
-	if (BIO_do_connect(_p->bio) <= 0)
-	{
-		print_ssl_error("BIO_do_connect");
-		return -1;
-	}
+	_p->ssl = SSL_new(_p->ctx);
+	SSL_set_fd(_p->ssl, _vp->fd);
+	SSL_set_tlsext_host_name(_p->ssl, ip.c_str()); // TODO: replace with hostname
 
-	_p->bio = BIO_push(BIO_new_ssl(_p->ctx, 1), _p->bio);
-	SSL_set_tlsext_host_name(_p->getSSL(), host.c_str());
-	
-	if (BIO_do_handshake(_p->bio) <= 0)
+	if (SSL_connect(_p->ssl) != 1)
 	{
-		print_ssl_error("BIO_do_handshake");
-		return -1;
+		return -2;
 	}
 
 	// verify certificate
-	int err = SSL_get_verify_result(_p->getSSL());
+	int err = SSL_get_verify_result(_p->ssl);
 	if (err != X509_V_OK)
 	{
 		const char* msg = X509_verify_cert_error_string(err);
 		fprintf(stderr, "X509_verify_cert_error_string: (%d) %s\n", err, msg);
-		return -1;
+		return -3;
 	}
 
-	_p->update_vp(*this);
 	return 0;
 }
 
 int sslsock::send(const void* buffer, int length)
 {
-	int ret = BIO_write(_p->bio, buffer, length);
+	int ret = SSL_write(_p->ssl, buffer, length);
 	if (ret < 0)
 	{
 		print_ssl_error("BIO_write");
@@ -115,7 +85,7 @@ int sslsock::send(const void* buffer, int length)
 
 int sslsock::recv(void* buffer, int length)
 {
-	int ret = BIO_read(_p->bio, buffer, length);
+	int ret = SSL_read(_p->ssl, buffer, length);
 	if (ret < 0)
 	{
 		print_ssl_error("BIO_read");
@@ -125,7 +95,7 @@ int sslsock::recv(void* buffer, int length)
 
 std::string sslsock::getSubjectName()
 {
-	X509* cert = SSL_get_peer_certificate(_p->getSSL());
+	X509* cert = SSL_get_peer_certificate(_p->ssl);
 	if (!cert)
 	{
 		fprintf(stderr, "no cert found on peer server\n");
@@ -141,7 +111,7 @@ std::string sslsock::getSubjectName()
 
 std::string sslsock::getIssuerName()
 {
-	X509* cert = SSL_get_peer_certificate(_p->getSSL());
+	X509* cert = SSL_get_peer_certificate(_p->ssl);
 	if (!cert)
 	{
 		fprintf(stderr, "no cert found on peer server\n");
@@ -158,32 +128,16 @@ std::string sslsock::getIssuerName()
 struct sslserversock::_impl
 {
 	SSL_CTX* ctx;
-	BIO* bio;
 
 	_impl()
 	{
 		ctx = SSL_CTX_new(TLS_method());
 		SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-
-		bio = nullptr;
 	}
 
 	~_impl()
 	{
-		BIO_free_all(bio);
 		SSL_CTX_free(ctx);
-	}
-
-	void update_vp(sslserversock& s)
-	{
-		BIO_get_fd(bio, &(s._vp->fd));
-
-		sockaddr addr;
-		socklen_t slen = sizeof(addr);
-		getpeername(s._vp->fd, &addr, &slen);
-		s._vp->af_protocol = addr.sa_family;  // AF_INET, AF_INET6
-
-		s._vp->inited = true;
 	}
 };
 
@@ -202,42 +156,29 @@ int sslserversock::usePKFile(const std::string& path)
 	return SSL_CTX_use_PrivateKey_file(_p->ctx, path.c_str(), SSL_FILETYPE_PEM);
 }
 
-int sslserversock::bind(int port)
+int sslserversock::accept(sslsock& outs)
 {
-	std::string str = std::to_string(port);
-	_p->bio = BIO_new_accept(str.c_str());
-	if (int ret = BIO_do_accept(_p->bio); ret < 0)
+	// failed if `outs` has been connected.
+	if (!*this || outs) return GSOCK_INVALID_SOCKET;
+
+	sslsock c;  // empty sslsock
+	if (int ret = serversock::accept(c); ret < 0)
 	{
-		print_ssl_error("BIO_do_accept");
 		return ret;
 	}
+	// c._vp->fd has already been set and managed, so we don't need to call close.
 
-	_p->update_vp(*this);
-}
+	// Do ssl handshake
+	c._p->ssl = SSL_new(_p->ctx);
+	SSL_set_fd(c._p->ssl, c._vp->fd);
 
-sslsock sslserversock::accept()
-{
-	int ret = BIO_do_accept(_p->bio);
-	if (ret < 0)
+	if (SSL_accept(c._p->ssl) <= 0)
 	{
-		return sslsock();
-	}
-	
-	BIO* newBio = BIO_pop(_p->bio);
-
-	sslsock client;
-	SSL_CTX_free(client._p->ctx);
-	client._p->ctx = nullptr;
-	client._p->bio = BIO_push(BIO_new_ssl(_p->ctx, 0), newBio);
-	client._p->update_vp(client);
-
-	// Do handshake here in case you want to send before recv.
-	if (BIO_do_handshake(client._p->bio) <= 0)
-	{
-		return sslsock();
+		return -2;
 	}
 
-	return client;
+	outs = c;
+	return 0;
 }
 
 #endif
