@@ -425,6 +425,25 @@ public:
 };
 #endif // End of Platform specific
 
+#ifndef GSOCK_NO_SSL
+class sslsock
+{
+public:
+	sslsock();
+
+	int loadVerifyLocation(const std::string& path);
+
+	int connect(const std::string& host, int port);
+	int send(const void* buffer, int length);
+	int recv(void* buffer, int length);
+
+
+
+	struct _impl;
+	std::shared_ptr<_impl> _p;
+};
+#endif
+
 /// Net Tools
 
 // Return:
