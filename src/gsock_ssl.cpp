@@ -2,8 +2,8 @@
 
 #ifndef GSOCK_NO_SSL
 #include <openssl/ssl.h>
-#include <openssl/bio.h>
 #include <openssl/err.h>
+// #include <openssl/bio.h>
 
 void print_ssl_error(const std::string& str)
 {
@@ -25,7 +25,10 @@ struct sslsock::_impl
 			print_ssl_error("SSL_CTX_set_default_verify_paths");
 		}
 
-		ssl = nullptr;
+		// Disable auto retry to work together with selector.
+		SSL_CTX_clear_mode(ctx, SSL_MODE_AUTO_RETRY);
+
+		ssl = SSL_new(ctx);
 	}
 
 	~_impl()
@@ -52,7 +55,6 @@ int sslsock::connect(const std::string& ip, int port)
 		return ret;
 	}
 
-	_p->ssl = SSL_new(_p->ctx);
 	SSL_set_fd(_p->ssl, _vp->fd);
 	SSL_set_tlsext_host_name(_p->ssl, ip.c_str()); // TODO: replace with hostname
 
@@ -78,7 +80,7 @@ int sslsock::send(const void* buffer, int length)
 	int ret = SSL_write(_p->ssl, buffer, length);
 	if (ret < 0)
 	{
-		print_ssl_error("BIO_write");
+		print_ssl_error("SSL_write");
 	}
 	return ret;
 }
@@ -86,9 +88,14 @@ int sslsock::send(const void* buffer, int length)
 int sslsock::recv(void* buffer, int length)
 {
 	int ret = SSL_read(_p->ssl, buffer, length);
+	if (SSL_get_error(_p->ssl, ret) == SSL_ERROR_WANT_READ)
+	{
+		return -2;
+	}
+
 	if (ret < 0)
 	{
-		print_ssl_error("BIO_read");
+		print_ssl_error("SSL_read");
 	}
 	return ret;
 }

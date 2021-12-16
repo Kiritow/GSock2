@@ -435,6 +435,10 @@ public:
 
 	int connect(const std::string& ip, int port);
 	int send(const void* buffer, int length);
+
+	// Returns:
+	// 0, -1: underlying SSL_read error
+	// -2: no data can be read now, try later. This may happen when using together with selector/epoll
 	int recv(void* buffer, int length);
 
 	std::string getSubjectName();
