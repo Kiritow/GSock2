@@ -152,7 +152,7 @@ int basic_sock::_impl::_create_and_connect(int protocol, const sockaddr* paddr, 
 	return ::connect(fd, paddr, szaddr);
 }
 
-basic_sock::basic_sock() : _vp(new _impl) {}
+basic_sock::basic_sock() : _vp(std::make_shared<_impl>()) {}
 
 basic_sock::operator bool() const
 {
@@ -764,7 +764,7 @@ struct selector::_impl
 	int readsz, writesz, errorsz;
 };
 
-selector::selector() : _pp(new _impl)
+selector::selector() : _pp(std::make_shared<_impl>())
 {
 	clear();
 }

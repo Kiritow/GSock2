@@ -114,7 +114,7 @@ void NBSendResult::_impl::update()
 	myliblog("NBSendResult status updated to %d\n", status);
 }
 
-NBSendResult::NBSendResult() : _p(new _impl)
+NBSendResult::NBSendResult() : _p(std::make_shared<_impl>())
 {
 	_p->status = 0;
 	_p->stopAtEdge = false;
@@ -198,7 +198,7 @@ void NBRecvResult::_impl::update()
 	myliblog("NBRecvResult status updated to %d\n", status);
 }
 
-NBRecvResult::NBRecvResult() : _p(new _impl)
+NBRecvResult::NBRecvResult() : _p(std::make_shared<_impl>())
 {
 	_p->status = 0;
 	_p->stopAtEdge = false;
@@ -332,7 +332,7 @@ void NBAcceptResult::_impl::update()
 	myliblog("NBAcceptResult status updated to %d\n", status);
 }
 
-NBAcceptResult::NBAcceptResult() : _sp(new _impl)
+NBAcceptResult::NBAcceptResult() : _sp(std::make_shared<_impl>())
 {
 	_sp->status = 0;
 	_sp->stopAtEdge = false;

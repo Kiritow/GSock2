@@ -81,7 +81,7 @@ struct epoll::_impl
 	}
 };
 
-epoll::epoll(int size) : _p(new _impl(size))
+epoll::epoll(int size) : _p(std::make_shared<_impl>(size))
 {
 	
 }

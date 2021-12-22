@@ -130,7 +130,7 @@ struct iocp::_impl
 	}
 };
 
-iocp::iocp(int threads) : _p(new _impl(threads))
+iocp::iocp(int threads) : _p(std::make_shared<_impl>(threads))
 {
 
 }

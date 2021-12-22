@@ -38,7 +38,7 @@ struct sslsock::_impl
 	}
 };
 
-sslsock::sslsock() : _p(new _impl)
+sslsock::sslsock() : _p(std::make_shared<_impl>())
 {
 
 }
@@ -148,7 +148,7 @@ struct sslserversock::_impl
 	}
 };
 
-sslserversock::sslserversock() : _p(new _impl)
+sslserversock::sslserversock() : _p(std::make_shared<_impl>())
 {
 
 }
